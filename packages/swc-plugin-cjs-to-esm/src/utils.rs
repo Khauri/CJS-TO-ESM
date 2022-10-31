@@ -1,4 +1,7 @@
-// use swc_core::{common::{DUMMY_SP, util::take::Take}, ecma::ast::*};
+use swc_core::{
+    // common::{DUMMY_SP, util::take::Take}, 
+    ecma::ast::*
+};
 
 /**
  * Determines if a given string uses single quotes
@@ -18,6 +21,41 @@
 //         s.replace("\"", "'")
 //     }
 // }
+
+/**
+  Runs a closure function if a given Expression is a call to `require`.
+ */
+pub fn if_require_call_expr<T, F:FnOnce(&CallExpr, Str) -> T>(expr: &Expr, f: F) -> Option<T> {
+    if let Expr::Call(call_expr) = expr {
+        if let Callee::Expr(callee_expr) = &call_expr.callee {
+            if let Expr::Ident(Ident { sym, .. }) = &**callee_expr {
+                if sym == "require" {
+                    if let Some(arg) = call_expr.args.get(0) {
+                        if let Expr::Lit(lit) = *arg.expr.to_owned() {
+                            let src = match lit {
+                                Lit::Str(s) => Some(s),
+                                _ => panic!("Unexpected require argument"),
+                            };
+                            Some(f(call_expr, src.unwrap()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
 
 /**
    Macro for removing empty statements in a visitor class

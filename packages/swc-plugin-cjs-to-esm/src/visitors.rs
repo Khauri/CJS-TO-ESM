@@ -4,7 +4,7 @@ use swc_core::ecma::{
 };
 use swc_core::common::{DUMMY_SP, util::take::Take};
 
-use crate::remove_empty;
+use crate::{remove_empty, utils::if_require_call_expr};
 
 pub struct NoopVisitor;
 
@@ -211,41 +211,28 @@ impl VisitMut for TransformRequireIdentVisitor {
         // Remove any declarations that match the pattern `const foo = require('foo')`
         d.decls.retain_mut(|decl| {
             if let Pat::Ident(name) = &decl.name {
-                if let Some(init) = &decl.init {
-                    if let Expr::Call(call) = &**init {
-                        if let Some(callee) = &call.callee.as_expr() {
-                            if let Expr::Ident(ident) = (***callee).to_owned() {
-                                if ident.sym == *"require" {
-                                    if let Some(arg) = call.args.get(0) {
-                                        if let Expr::Lit(lit) = *arg.expr.to_owned() {
-                                            let src = match lit {
-                                                Lit::Str(s) => s,
-                                                _ => panic!("Unexpected require argument"),
-                                            };
-                                            // import * as foo from 'foo';
-                                            let import = ModuleDecl::Import(ImportDecl {
-                                                span: DUMMY_SP,
-                                                specifiers: vec![ImportSpecifier::Namespace(
-                                                    ImportStarAsSpecifier { 
-                                                        span: DUMMY_SP, 
-                                                        local: Ident::new(name.sym.to_owned(), DUMMY_SP)
-                                                    }
-                                                )],
-                                                src: Box::new(src.to_owned()),
-                                                type_only: false,
-                                                asserts: None,
-                                            });
-                                            self.imports.push(import);
-                                            return false;
-                                        }
-                                    }
+                if_require_call_expr(
+                    &decl.init.as_ref().unwrap(),
+                    |_expr, src| {
+                        let import = ModuleDecl::Import(ImportDecl {
+                            span: DUMMY_SP,
+                            specifiers: vec![ImportSpecifier::Namespace(
+                                ImportStarAsSpecifier { 
+                                    span: DUMMY_SP, 
+                                    local: Ident::new(name.sym.to_owned(), DUMMY_SP)
                                 }
-                            }
-                        }
+                            )],
+                            src: Box::new(src.to_owned()),
+                            type_only: false,
+                            asserts: None,
+                        });
+                        self.imports.push(import);
+                        false
                     }
-                }
+                ).unwrap_or(true)
+            } else {
+                true
             }
-            true
         });
     }
 
@@ -293,23 +280,14 @@ impl VisitMut for TransformRequireStatementVistor {
     fn visit_mut_expr_stmt(&mut self, s: &mut ExprStmt) {
         s.visit_mut_children_with(self);
         // print!("{:?}", s);
-        if let Some(e) = s.expr.as_call() {
-            if let Callee::Expr(expr) = &e.callee {
-                if let Expr::Ident(ident) = &**expr {
-                    if ident.sym != *"require" {
-                        return;
-                    }
-                    
-                    if let Expr::Lit(lit) = &*e.args[0].expr {
-                        if let Lit::Str(str) = &lit {
-                            // Add to imports vector and mark for deletion 
-                            self.imports.push(str.to_owned());
-                            s.expr.take();
-                        }
-                    }
-                }
+        if_require_call_expr(
+            &s.expr.to_owned(), 
+            |_expr, src| {
+                // Add to imports vector and mark for deletion 
+                self.imports.push(src.to_owned());
+                s.expr.take();
             }
-        }
+        );
     }
 }
 
@@ -346,40 +324,28 @@ impl VisitMut for TransformRequireComplexMemberVisitor {
     fn visit_mut_member_expr(&mut self, e: &mut MemberExpr) {
         e.visit_mut_children_with(self);
         // println!("Here: {:?}", e);
-        // check if e.obj is the call expression `require` and replace it with _mod${}
-        if let Expr::Call(expr) = &*e.obj {
-            if let Callee::Expr(callee) = &expr.callee {
-                if let Expr::Ident(ident) = &**callee {
-                    if ident.sym == *"require" {
-                        if let Some(arg) = expr.args.get(0) {
-                            if let Expr::Lit(lit) = *arg.expr.to_owned() {
-                                let src = match lit {
-                                    Lit::Str(s) => Some(s),
-                                    _ => panic!("Unexpected require argument"),
-                                };
-                                self.cnt += 1;
-                                let import_ident = Ident::new(format!("_mod${}", self.cnt).into(), DUMMY_SP);
-                                // TODO: Not sure how to get the name of the variable. Might need to add in more visitors
-                                e.obj = Box::new(Expr::Ident(import_ident.to_owned()));
-                                // import * as foo from 'foo';
-                                let import = ModuleDecl::Import(ImportDecl {
-                                    span: DUMMY_SP,
-                                    specifiers: vec![ImportSpecifier::Namespace(
-                                        ImportStarAsSpecifier { 
-                                            span: DUMMY_SP, 
-                                            local: import_ident
-                                        }
-                                    )],
-                                    src: Box::new(src.to_owned().unwrap()),
-                                    type_only: false,
-                                    asserts: None,
-                                });
-                                self.imports.push(import);
-                            }
+        if_require_call_expr(
+            &e.obj.to_owned(),
+            |_expr, src| {
+                self.cnt += 1;
+                let import_ident = Ident::new(format!("_mod${}", self.cnt).into(), DUMMY_SP);
+                // TODO: Not sure how to get the name of the variable. Might need to add in more visitors
+                e.obj = Box::new(Expr::Ident(import_ident.to_owned()));
+                // import * as foo from 'foo';
+                let import = ModuleDecl::Import(ImportDecl {
+                    span: DUMMY_SP,
+                    specifiers: vec![ImportSpecifier::Namespace(
+                        ImportStarAsSpecifier { 
+                            span: DUMMY_SP, 
+                            local: import_ident
                         }
-                    }
-                }
+                    )],
+                    src: Box::new(src.to_owned()),
+                    type_only: false,
+                    asserts: None,
+                });
+                self.imports.push(import);
             }
-        }
+        );
     }
 }
