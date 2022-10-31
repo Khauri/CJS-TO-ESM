@@ -1,0 +1,2 @@
+test *args:
+  cargo test -- --show-output --test-threads 1 {{args}}

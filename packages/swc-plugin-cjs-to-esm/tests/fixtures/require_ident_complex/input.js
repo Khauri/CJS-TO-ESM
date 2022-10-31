@@ -1,0 +1,1 @@
+const bar = require('foo').d.init();
