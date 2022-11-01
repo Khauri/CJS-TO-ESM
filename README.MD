@@ -18,8 +18,8 @@ Status: ⚠️
 | Simple Imports | ✅ |
 | Member Expression Imports | ✅ |
 | Named Module Exports to Named Export | ✅ |
+| Purely Destructured Imports | ✅ |
 | Impurely Destructured Imports | 🚧 |
-| Purely Destructured Imports | 🚧 |
 | Default Object Export to Named Export | ❌ |
 | Complex Export Objects | ❌ |
 

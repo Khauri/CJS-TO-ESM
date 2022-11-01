@@ -39,63 +39,44 @@ pub fn transform_require_ident_to_import() -> impl Fold {
 }
 
 /**
-    Transforms any require statements followed by member accessors
+    Transforms any pure destructured require statements
+
+    ```js
+    const { foo, bar: baz } = require('foo');
+    ```
+    to
+
+    ```js
+    import { foo, bar as baz } from 'foo';
+    ```
+ */
+pub fn transform_require_pure_destructure_to_named_imports() -> impl Fold {
+    as_folder(TransformPureDestructuredRequireVisitor::new())
+}
+
+/**
+    Transforms any expression not caught by the other rules
 
     ```js
     const bar = require('foo').bar;
+    const {a, b, c = b} = require('baz');
     ```
 
     to 
 
     ```js
-    import * as bar$123 from 'foo';
-    const bar = bar$123.bar;
+    import * as mod$1 from 'foo';
+    import * as mod$2 from 'baz';
+    const bar = mod$1.bar;
+    const {a, b, c = b} = mod$2;
     ```
  */
 pub fn transform_require_expression_to_import() -> impl Fold {
-    as_folder(TransformRequireComplexMemberVisitor { 
-        imports: vec![], 
-        cnt: 0, 
-     })
+    as_folder(TransformRequireFallback::new())
 }
 
 /**
-    Transforms simple destructured require statements into named imports
-
-    ```js
-    const {foo, bar: baz} = require('foo');
-    ```
-
-    to 
-
-    ```js
-    import {foo, bar as baz} from 'foo';
-    ```
- */
-pub fn transform_require_simple_destructure_to_import() -> impl Fold {
-    as_folder(NoopVisitor)
-}
-
-/**
-    Transforms complex destructured require statements such as
-
-    ```js
-    const {foo, bar = foo} = require('foo');
-    ```
-
-    to 
-
-    ```js
-    import * as bar$123 from 'foo';
-    const {foo, bar = foo} = bar$123;
-    ```
- */
-pub fn transform_require_complex_destructure_to_import() -> impl Fold {
-    as_folder(NoopVisitor)
-}
-
-/**
-    Transforms a default cjs export to a named export
+    Transforms a default cjs export to a named export and a default export
 
     ```js
     module.exports = foo;
@@ -105,6 +86,7 @@ pub fn transform_require_complex_destructure_to_import() -> impl Fold {
 
     ```js
     export {foo};
+    export default foo;
     ```
  */
 pub fn transform_module_exports_ident_to_named_export() -> impl Fold {
@@ -172,11 +154,13 @@ pub fn transform_module_exports_expression() -> impl Fold {
  */
 pub fn transform_imports() -> impl Fold {
     chain!(
+        // TODO: Handle transformation of `require('foo').bar();` to `import * as _mod$a1 from 'foo'; foo$123.bar();`
         transform_require_expr_stmt(),
         transform_require_ident_to_import(),
+        transform_require_pure_destructure_to_named_imports(),
+        // TODO: Handle special case of const a = require('...').default
+        // This is a fallback statement and should probably remain last. Handles all other unusual cases.
         transform_require_expression_to_import(),
-        transform_require_simple_destructure_to_import(),
-        transform_require_complex_destructure_to_import(),
     )
 }
 

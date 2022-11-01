@@ -300,13 +300,21 @@ pub struct TransformRequireSingleMemberVisitor {
 impl VisitMut for TransformRequireSingleMemberVisitor {
 }
 
-pub struct TransformRequireComplexMemberVisitor {
+pub struct TransformRequireFallback {
     pub imports: Vec<ModuleDecl>,
     pub cnt: usize, // used to keep track of unnamed imports
 }
 
-// const foo = require('foo').bar.baz; -> import * as foo$ from 'foo'; const foo = foo$.bar.baz;
-impl VisitMut for TransformRequireComplexMemberVisitor {
+impl TransformRequireFallback {
+    pub fn new() -> Self {
+        Self {
+            imports: vec![],
+            cnt: 0,
+        }
+    }
+}
+
+impl VisitMut for TransformRequireFallback {
     // basic creates a new import for the module and replace require with the new import
     // Left hand side is only used to determine the name. If no name then it will be named _mod
     remove_empty!();
@@ -347,5 +355,110 @@ impl VisitMut for TransformRequireComplexMemberVisitor {
                 self.imports.push(import);
             }
         );
+    }
+}
+
+pub struct TransformPureDestructuredRequireVisitor {
+    imports: Vec<ModuleDecl>,
+}
+
+impl TransformPureDestructuredRequireVisitor {
+    pub fn new() -> Self {
+        Self {
+            imports: vec![],
+        }
+    }
+}
+
+// const { foo, bar: baz } = require('foo'); -> import { foo, bar as baz } from 'foo';
+impl VisitMut for TransformPureDestructuredRequireVisitor {
+    remove_empty!();
+
+    fn visit_mut_module(&mut self, m: &mut Module) {
+        m.visit_mut_children_with(self);
+        for decl in &self.imports {
+            m.body.insert(
+                0,
+                ModuleItem::ModuleDecl(decl.to_owned()),
+            );
+        }
+    }
+
+    fn visit_mut_var_decl(&mut self, d: &mut VarDecl) {
+        d.visit_mut_children_with(self);
+        // Remove any declarations that match the pattern `const { foo, bar: baz } = require('foo')`
+        d.decls.retain_mut(|decl| {
+            println!("Decl: {:?}", decl);
+            if let Pat::Invalid(_) = decl.name {
+                false
+            } else {
+                true
+            }
+        });
+        if d.decls.len() == 0 {
+            d.take();
+        }
+    }
+
+    fn visit_mut_var_declarator(&mut self, d: &mut VarDeclarator) {
+        d.visit_mut_children_with(self);
+        // Remove any declarations that match the pattern `const foo = require('foo')`
+        // Rhs must be exactly the call_expr ('require');
+        if let Some(expr) = &d.init {
+            if_require_call_expr(
+                &expr.to_owned(),
+                |_expr, src| {
+                    // Lhs must be an object pattern
+                    if let Some(ObjectPat { props, .. }) = d.name.as_object() {
+                        let mut specifiers: Vec<ImportSpecifier> = vec![];
+                        if props.iter().all(|prop| {
+                            println!("Prop: {:?}\n", prop);
+                            match prop {
+                                ObjectPatProp::Assign(AssignPatProp { key, value, .. }) => {
+                                    if *value == None {
+                                        specifiers.push(ImportSpecifier::Named(
+                                            ImportNamedSpecifier {
+                                                span: DUMMY_SP,
+                                                local: key.to_owned(),
+                                                imported: None,
+                                                is_type_only: false
+                                            }
+                                        ));
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                },
+                                ObjectPatProp::KeyValue(v) => {
+                                    specifiers.push(ImportSpecifier::Named(
+                                        ImportNamedSpecifier {
+                                            span: DUMMY_SP,
+                                            local: Ident::new(v.value.as_ident().unwrap().to_id().0, DUMMY_SP),
+                                            imported: Some(ModuleExportName::Ident(Ident::new(v.key.as_ident().unwrap().to_id().0, DUMMY_SP))),
+                                            is_type_only: false
+                                        }
+                                    ));
+                                    true
+                                },
+                                _ => false // TODO make false
+                            }
+                        }) {
+                            println!("All pure");
+                            // Create a new import
+                            let import = ModuleDecl::Import(ImportDecl {
+                                span: DUMMY_SP,
+                                specifiers,
+                                src: Box::new(src.to_owned()),
+                                type_only: false,
+                                asserts: None,
+                            });
+                            self.imports.insert(0, import);
+                            d.take();
+                        }
+                    }
+                }
+            );
+        }
+        
     }
 }
