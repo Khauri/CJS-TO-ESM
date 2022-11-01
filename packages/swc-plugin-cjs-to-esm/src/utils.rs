@@ -23,9 +23,48 @@ use swc_core::{
 // }
 
 /**
-  Runs a closure function if a given Expression is a call to `require`.
+    Runs a closure function if the expression is a module.exports assignment.
+    Note that exports = abc is not a valid default export.
+*/
+pub fn if_export_default<T, F:FnOnce() -> T>(node: &AssignExpr, f: F) -> Option<T> {
+    // Should probably replace with let chains when stable
+    if let PatOrExpr::Pat(pat) = &node.left {
+        if let Pat::Expr(expr) = &**pat {
+            if let Expr::Member(MemberExpr { obj, prop, .. }) = &**expr {
+                if let Expr::Ident(Ident { sym, .. }) = &**obj {
+                    if sym == "module" {
+                        if let MemberProp::Ident(Ident { sym, .. }) = &*prop {
+                            if sym == "exports" {
+                                Some(f())
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+                
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+/**
+    Runs a closure function if a given Expression is a call to `require`.
  */
 pub fn if_require_call_expr<T, F:FnOnce(&CallExpr, Str) -> T>(expr: &Expr, f: F) -> Option<T> {
+    // Should probably replace with let chains when stable
     if let Expr::Call(call_expr) = expr {
         if let Callee::Expr(callee_expr) = &call_expr.callee {
             if let Expr::Ident(Ident { sym, .. }) = &**callee_expr {
@@ -58,7 +97,7 @@ pub fn if_require_call_expr<T, F:FnOnce(&CallExpr, Str) -> T>(expr: &Expr, f: F)
 }
 
 /**
-   Macro for removing empty statements in a visitor class
+    Macro for removing empty statements in a visitor class
  */
 #[macro_export]
 macro_rules! remove_empty {

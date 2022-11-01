@@ -4,11 +4,63 @@ use swc_core::ecma::{
 };
 use swc_core::common::{DUMMY_SP, util::take::Take};
 
-use crate::{remove_empty, utils::if_require_call_expr};
+use crate::{remove_empty, utils::{if_require_call_expr, if_export_default}};
 
 pub struct NoopVisitor;
 
 impl VisitMut for NoopVisitor {}
+
+pub struct TransformModuleDefaultExport {
+    pub export: Option<ExportDefaultExpr>
+}
+
+impl TransformModuleDefaultExport {
+    pub fn new() -> Self {
+        Self { export: None }
+    }
+}
+
+impl VisitMut for TransformModuleDefaultExport {
+    remove_empty!();
+
+    fn visit_mut_module(&mut self, m: &mut Module) {
+        m.visit_mut_children_with(self);
+
+        if let Some(export) = self.export.take() {
+            m.body.push(ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(export)));
+        }
+    }
+
+    fn visit_mut_expr_stmt(&mut self, e: &mut ExprStmt) {
+        e.visit_mut_children_with(self);
+        // If left side is invalid then remove
+        if let Expr::Assign(a) = &*e.expr {
+            match &a.left {
+                PatOrExpr::Pat(pat) => {
+                    if let Pat::Invalid(..) = **pat {
+                        e.expr.take();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn visit_mut_assign_expr(&mut self, node: &mut AssignExpr) {
+        node.visit_mut_children_with(self);
+
+        if_export_default(
+            &node.to_owned(), 
+            || {
+                // TODO: this is a fallback for when the default export is not a pure object
+                // so if you make it here then a warning should be shown.
+                let expr = node.right.take();
+                node.take();
+                self.export = Some(ExportDefaultExpr { span: DUMMY_SP, expr });
+            }
+        );
+    }
+}
 
 pub struct TransformModuleExportsNamedExprVisitor {
     pub exports: Vec<ExportDecl>,

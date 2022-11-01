@@ -122,8 +122,6 @@ pub fn transform_module_exports_object() -> impl Fold {
     ```js
     export const foo = 123;
     ```
-
-    And emits a warning that this file has as default export.
  */
 pub fn transform_module_exports_named_expression() -> impl Fold {
     as_folder(TransformModuleExportsNamedExprVisitor { exports: vec![] })
@@ -144,8 +142,8 @@ pub fn transform_module_exports_named_expression() -> impl Fold {
 
     And emits a warning that this file has as default export.
  */
-pub fn transform_module_exports_expression() -> impl Fold {
-    as_folder(NoopVisitor)
+pub fn transform_module_default_export() -> impl Fold {
+    as_folder(TransformModuleDefaultExport::new())
 }
 
 /**
@@ -170,9 +168,9 @@ pub fn transform_imports() -> impl Fold {
 pub fn transform_exports() -> impl Fold {
     chain!(
         transform_module_exports_ident_to_named_export(),
-        transform_module_exports_object(),
         transform_module_exports_named_expression(),
-        transform_module_exports_expression(),
+        transform_module_exports_object(),
+        transform_module_default_export(),
     )
 }
 
