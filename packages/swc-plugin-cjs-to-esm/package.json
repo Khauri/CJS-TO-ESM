@@ -1,5 +1,5 @@
 {
-    "name": "cjs2esm",
+    "name": "swc-plugin-cjs-to-esm",
     "version": "0.1.0",
     "description": "swc plugin to convert cjs to esm",
     "author": "kmcclain@email.wm.edu",
