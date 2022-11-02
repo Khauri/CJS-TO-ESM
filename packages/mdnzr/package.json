@@ -1,9 +1,11 @@
 {
   "name": "mdnzr",
-  "version": "0.1.0",
-  "description" : "A js package for modernizing your code fast",
+  "version": "0.1.1",
+  "description" : "A js package for modernizing your code",
   "type": "module",
-  "main": "src/index.mjs",
+  "main": "src/index.js",
+  "author": "kmcclain@email.wm.edu",
+  "bin": "./src/cli.js",
   "license": "MIT",
   "dependencies": {
     "@swc/cli": "^0.1.57",
