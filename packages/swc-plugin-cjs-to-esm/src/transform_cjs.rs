@@ -18,7 +18,7 @@ use crate::visitors::*;
  */
 pub fn transform_require_expr_stmt() -> impl Fold {
     // Why does this require initialization? Do I need a default?
-    as_folder(TransformRequireStatementVistor { imports: vec![] })
+    as_folder(TransformRequireStatementVistor::new())
 }
 
 /**
@@ -35,7 +35,7 @@ pub fn transform_require_expr_stmt() -> impl Fold {
     ```
  */
 pub fn transform_require_ident_to_import() -> impl Fold {
-    as_folder(TransformRequireIdentVisitor { imports: vec![] })
+    as_folder(TransformRequireIdentVisitor::new())
 }
 
 /**
@@ -90,7 +90,7 @@ pub fn transform_require_expression_to_import() -> impl Fold {
     ```
  */
 pub fn transform_module_exports_ident_to_named_export() -> impl Fold {
-    as_folder(TransformModuleExportsIdentVisitor { exports: vec![] })
+    as_folder(TransformModuleExportsIdentVisitor::new())
 }
 
 /**
@@ -107,7 +107,7 @@ pub fn transform_module_exports_ident_to_named_export() -> impl Fold {
     ```
  */
 pub fn transform_module_exports_object() -> impl Fold {
-    as_folder(NoopVisitor)
+    as_folder(TransformExportDefaultObject::new())
 }
 
 /**
@@ -124,7 +124,7 @@ pub fn transform_module_exports_object() -> impl Fold {
     ```
  */
 pub fn transform_module_exports_named_expression() -> impl Fold {
-    as_folder(TransformModuleExportsNamedExprVisitor { exports: vec![] })
+    as_folder(TransformModuleExportsNamedExprVisitor::new())
 }
 
 /**

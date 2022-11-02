@@ -4,7 +4,7 @@ use swc_core::ecma::{
 };
 use swc_core::common::{DUMMY_SP, util::take::Take};
 
-use crate::{remove_empty, utils::{if_require_call_expr, if_export_default}};
+use crate::{remove_empty, utils::{if_require_call_expr, if_export_default, is_valid_identifier}};
 
 pub struct NoopVisitor;
 
@@ -64,6 +64,12 @@ impl VisitMut for TransformModuleDefaultExport {
 
 pub struct TransformModuleExportsNamedExprVisitor {
     pub exports: Vec<ExportDecl>,
+}
+
+impl TransformModuleExportsNamedExprVisitor {
+    pub fn new() -> Self {
+        Self { exports: vec![] }
+    }
 }
 
 impl VisitMut for TransformModuleExportsNamedExprVisitor {
@@ -154,6 +160,12 @@ impl VisitMut for TransformModuleExportsNamedExprVisitor {
 
 pub struct TransformModuleExportsIdentVisitor {
     pub exports: Vec<NamedExport>,
+}
+
+impl TransformModuleExportsIdentVisitor {
+    pub fn new() -> Self {
+        Self { exports: vec![] }
+    }
 }
 
 impl VisitMut for TransformModuleExportsIdentVisitor {
@@ -254,6 +266,14 @@ pub struct TransformRequireIdentVisitor {
     pub imports: Vec<ModuleDecl>,
 }
 
+impl TransformRequireIdentVisitor {
+    pub fn new() -> Self {
+        Self {
+            imports: vec![],
+        }
+    }
+}
+
 impl VisitMut for TransformRequireIdentVisitor {
     remove_empty!();
 
@@ -303,6 +323,14 @@ impl VisitMut for TransformRequireIdentVisitor {
 pub struct TransformRequireStatementVistor {
     // maintian a list of raw require statements
     pub imports: Vec<Str>
+}
+
+impl TransformRequireStatementVistor {
+    pub fn new() -> Self {
+        Self {
+            imports: vec![],
+        }
+    }
 }
 
 impl VisitMut for TransformRequireStatementVistor {
@@ -440,7 +468,6 @@ impl VisitMut for TransformPureDestructuredRequireVisitor {
         d.visit_mut_children_with(self);
         // Remove any declarations that match the pattern `const { foo, bar: baz } = require('foo')`
         d.decls.retain_mut(|decl| {
-            println!("Decl: {:?}", decl);
             if let Pat::Invalid(_) = decl.name {
                 false
             } else {
@@ -464,7 +491,6 @@ impl VisitMut for TransformPureDestructuredRequireVisitor {
                     if let Some(ObjectPat { props, .. }) = d.name.as_object() {
                         let mut specifiers: Vec<ImportSpecifier> = vec![];
                         if props.iter().all(|prop| {
-                            println!("Prop: {:?}\n", prop);
                             match prop {
                                 ObjectPatProp::Assign(AssignPatProp { key, value, .. }) => {
                                     if *value == None {
@@ -495,7 +521,6 @@ impl VisitMut for TransformPureDestructuredRequireVisitor {
                                 _ => false // TODO make false
                             }
                         }) {
-                            println!("All pure");
                             // Create a new import
                             let import = ModuleDecl::Import(ImportDecl {
                                 span: DUMMY_SP,
@@ -512,5 +537,142 @@ impl VisitMut for TransformPureDestructuredRequireVisitor {
             );
         }
         
+    }
+}
+
+pub struct TransformExportDefaultObject {
+    pub exports: Vec<ModuleDecl>,
+    pub decls: Vec<VarDeclarator>,
+    pub cnt: usize, // used to keep track of new variables
+}
+
+impl TransformExportDefaultObject {
+    pub fn new() -> Self {
+        Self {
+            exports: vec![],
+            decls: vec![],
+            cnt: 0,
+        }
+    }
+}
+
+impl VisitMut for TransformExportDefaultObject {
+    remove_empty!();
+
+    fn visit_mut_module(&mut self, m: &mut Module) {
+        m.visit_mut_children_with(self);
+        for decl in &self.decls {
+            m.body.push(
+                ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+                    span: DUMMY_SP,
+                    kind: VarDeclKind::Const,
+                    decls: vec![decl.to_owned()],
+                    declare: false,
+                }))))
+            );
+        }
+        for decl in &self.exports {
+            m.body.push(ModuleItem::ModuleDecl(decl.to_owned()));
+        }
+    }
+
+    fn visit_mut_assign_expr(&mut self, node: &mut AssignExpr) {
+        node.visit_mut_children_with(self);
+
+        if_export_default(
+            &node.to_owned(), 
+            || {
+                if let Some(ObjectLit {props, ..}) = node.right.as_object() {
+                    let mut specifiers: Vec<ExportSpecifier> = vec![];
+                    let mut is_impure = false;
+                    props.iter().for_each(|prop| {
+                        if let PropOrSpread::Prop(prop) = prop {
+                            match &**prop {
+                                Prop::KeyValue(v) => {
+                                    if !v.key.is_ident() && !v.key.is_str() {
+                                        is_impure = true;
+                                        return;
+                                    }
+                                    // if the value is a key check if it is a valid identifier
+                                    if v.key.is_str() {
+                                        if !is_valid_identifier(&v.key.as_str().unwrap().value) {
+                                            is_impure = true;
+                                            return;
+                                        }
+                                    }
+
+                                    let exported = if v.key.is_str() {
+                                        Ident::new(v.key.as_str().unwrap().value.to_owned(), DUMMY_SP)
+                                    } else {
+                                        Ident::new(v.key.as_ident().unwrap().to_id().0, DUMMY_SP)
+                                    };
+                                    
+                                    match &*v.value {
+                                        Expr::Ident(ident) => {
+                                            specifiers.push(ExportSpecifier::Named(
+                                                ExportNamedSpecifier {
+                                                    span: DUMMY_SP,
+                                                    orig: ModuleExportName::Ident(ident.to_owned()),
+                                                    is_type_only: false,
+                                                    exported: Some(ModuleExportName::Ident(exported)),
+                                                }
+                                            ));
+                                        },
+                                        _ => {
+                                            // extract the identifier to a new variable
+                                            self.cnt += 1;
+                                            let ident = Ident::new(
+                                                format!("_{}${}", exported.sym.to_owned(), self.cnt).as_str().into(), 
+                                                DUMMY_SP
+                                            );
+                                            let decl = VarDeclarator {
+                                                span: DUMMY_SP,
+                                                name: Pat::Ident(ident.to_owned().into()),
+                                                init: Some(v.value.to_owned()),
+                                                definite: false,
+                                            };
+                                            self.decls.push(decl);
+                                            specifiers.push(ExportSpecifier::Named(
+                                                ExportNamedSpecifier {
+                                                    span: DUMMY_SP,
+                                                    orig: ModuleExportName::Ident(ident.to_owned()),
+                                                    is_type_only: false,
+                                                    exported: Some(ModuleExportName::Ident(exported.to_owned())),
+                                                }
+                                            ));
+                                        }
+                                    }
+                                },
+                                Prop::Shorthand(v) => {
+                                    specifiers.push(ExportSpecifier::Named(ExportNamedSpecifier {
+                                        span: DUMMY_SP,
+                                        is_type_only: false,
+                                        orig: ModuleExportName::Ident(Ident::new(v.to_id().0, DUMMY_SP)),
+                                        exported: None,
+                                    }));
+                                },
+                                // Impure export, omit a warning at some point
+                                _ => {
+                                    is_impure = true;
+                                }
+                            }
+                        }
+                    });
+                    if is_impure {
+                        // TODO: Emit a warning that a default export was also exported
+                    } else {
+                        node.take();
+                    }
+                    let export = ModuleDecl::ExportNamed(NamedExport {
+                        span: DUMMY_SP,
+                        specifiers,
+                        src: None,
+                        type_only: false,
+                        asserts: None,
+                    });
+                    self.exports.push(export);
+                }
+            }
+        );
     }
 }

@@ -23,6 +23,24 @@ use swc_core::{
 // }
 
 /**
+    Checks if a given string can be used as an identifier
+    Note that this is not robust but should be sufficient for 
+  
+ */
+pub fn is_valid_identifier(s: &str) -> bool {
+    // check that string does not start with a number
+    if s.starts_with(|c: char| c.is_numeric()) {
+        return false;
+    }
+    // Check that string does not contain non-alphanumeric characters
+    // alphanumeric here includes unicode characters, _, and $
+    if s.contains(|c: char| !c.is_alphanumeric() && c != '_' && c != '$') {
+        return false;
+    }
+    return true;
+}
+
+/**
     Runs a closure function if the expression is a module.exports assignment.
     Note that exports = abc is not a valid default export.
 */

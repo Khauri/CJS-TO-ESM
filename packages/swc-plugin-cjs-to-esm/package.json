@@ -1,13 +1,13 @@
 {
     "name": "cjs2esm",
     "version": "0.1.0",
-    "description": "",
-    "author": "",
+    "description": "swc plugin to convert cjs to esm",
+    "author": "kmcclain@email.wm.edu",
     "license": "ISC",
-    "keywords": ["swc-plugin"],
-    "main": "target/wasm32-wasi/release/cjs2esm.wasm",
+    "keywords": ["swc-plugin", "cjs-to-esm", "cjs", "esm"],
+    "main": "dist/cjs2esm.wasm",
     "scripts": {
-        "prepublishOnly": "cargo build-wasi --release"
-    },
-    "files": []
+        "prepublishOnly": "cargo build-wasi --release",
+        "prepack": "cargo prepublish --release && mkdir -p ./dist && cp target/wasm32-wasi/release/cjs2esm.wasm ./dist"
+    }
 }
