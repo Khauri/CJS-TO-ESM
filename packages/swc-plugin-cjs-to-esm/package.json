@@ -5,9 +5,13 @@
     "author": "kmcclain@email.wm.edu",
     "license": "ISC",
     "keywords": ["swc-plugin", "cjs-to-esm", "cjs", "esm"],
-    "main": "dist/cjs2esm.wasm",
+    "main": "dist/swc_plugin_cjs_to_esm.wasm",
     "scripts": {
-        "prepublishOnly": "cargo build-wasi --release",
-        "prepack": "cargo prepublish --release && mkdir -p ./dist && cp target/wasm32-wasi/release/cjs2esm.wasm ./dist"
-    }
+        "prepack": "cargo build-wasi --release && mkdir -p ./dist && cp target/wasm32-wasi/release/swc_plugin_cjs_to_esm.wasm ./dist"
+    },
+    "files": [
+        "dist",
+        "package.json",
+        "README.MD"
+    ]
 }

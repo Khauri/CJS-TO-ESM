@@ -1,7 +1,22 @@
 # swc-plugin-cjs-to-esm
 
-This is a swc plugin that transforms cjs to esm.
-Written in rust and compiled to webassembly (with wasm-wasi target).
+> This plugin is under development, not recommended for extensive use.
+
+This is a swc plugin that transforms common CJS patterns to ESM with named exports.
+
+Does not support typescript.
+
+This plugin is more useful for transitioning a larger codebase from cjs to esm over time. It is not recommended as
+a compiler plugin but rather should be used as a one-time transformation that writes the output to disk and then followed up
+by a linter.
+
+## Usage
+
+```sh
+npm install <this-package>
+```
+
+Add the plugin to your .swcrc or the config object
 
 ## Testing
 
